@@ -44,8 +44,18 @@ echo "echo Jobid: \$PBS_JOBID" >>$SFILE
 echo "echo Running on host \`hostname\`" >>$SFILE
 echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$SFILE
 
-echo "module load cmake" >> $SFILE
+echo "module -q purge" >> $SFILE
+echo "module -q restore" >> $SFILE
+echo "module -q swap mpich/opt/4.3.0rc3 mpich/opt/develop-git.7dd7b89 " >> $SFILE
+echo "module -q unload oneapi/eng-compiler/2024.07.30.002" >> $SFILE
+echo "module -q use /opt/aurora/24.180.3/spack/unified/0.8.0/install/modulefiles/oneapi/2024.07.30.002" >> $SFILE
+echo "module -q use /soft/preview/pe/24.347.0-RC2/modulefiles" >> $SFILE
+echo "module -q add oneapi/release/2025.0.5 " >> $SFILE
+echo "module -q unload intel_compute_runtime " >> $SFILE
+echo "module -q load cmake" >> $SFILE
 echo "module list" >> $SFILE
+
+echo "export ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE" >> $SFILE
 
 echo "export NEKRS_HOME=$NEKRS_HOME" >>$SFILE
 echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$SFILE
@@ -53,6 +63,12 @@ echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$SFILE
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $SFILE
 
 echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $SFILE # required by parRSB
+
+# Required for correct device-side timings until upstream bugfixes are available
+# https://github.com/intel/llvm/pull/16233
+# https://github.com/oneapi-src/unified-runtime/pull/2410 
+echo "export SYCL_PI_LEVEL_ZERO_IMMEDIATE_COMMANDLISTS_EVENT_CLEANUP_THRESHOLD=-1" >> $SFILE
+echo "export SYCL_PI_LEVEL_ZERO_REUSE_DISCARDED_EVENTS=0" >> $SFILE
 
 CMD=.lhelper
 echo "#!/bin/bash" > $CMD
