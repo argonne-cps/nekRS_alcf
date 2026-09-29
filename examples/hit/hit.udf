@@ -1,17 +1,24 @@
+//.. ---------------------------------------------------------
+//.. legend: hacked version of the UDF. look for "RBK Hacks"
+//.. ---------------------------------------------------------
+//.. tweaked by: Ramesh Balakrishnan (bramesh@anl.gov)
+//.. tweaked at: Argonne National Laboratory
+//.. tweaked on: September 19, 2026
+//.. ---------------------------------------------------------
 #include "udf.hpp"
 
 deviceMemory<dfloat> o_qcriterion;
 
-static constexpr dfloat L = 2*M_PI;   // domain (box) length
-static constexpr dfloat l = 0.19 * L; // integral length scale (given by method) 
-static dfloat uPrime;
-static dfloat A;
+static constexpr dfloat L = 2*M_PI;   //.. domain (box) length
+static constexpr dfloat l = 0.19 * L; //.. integral length scale (Rosales & Meneveau)
+static dfloat    uPrime;              //.. we specify the uPrime in he .par file
+static dfloat    A;                   //.. A is the forcing term in Du/Dt = -\nabla(p)  Au
 
 #ifdef __okl__
 
-@kernel void kEnergy(const dlong Ntotal, 
+@kernel void kEnergy(const dlong Ntotal,
                      const dlong offset,
-                     @ restrict const dfloat *U, 
+                     @ restrict const dfloat *U,
                      @ restrict dfloat *k)
 {
   for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
@@ -26,41 +33,44 @@ static dfloat A;
 
 deviceMemory<dfloat> implicitForcing(dfloat time)
 {
-  auto mesh = nrs->meshV;
+  //.. RBK Hacks (changed "nrs->mesh" to "nrs->fluid->mesh")
+  auto mesh = nrs->fluid->mesh;
 
   poolDeviceMemory<dfloat> o_F(mesh->Nlocal);
   platform->linAlg->fill(o_F.size(), -A, o_F);
   return o_F;
 }
 
-// according to Eq(7) in https://doi.org/10.1063/1.4944629
+//.. according to Eq(7) in https://doi.org/10.1063/1.4944629
+//.. determining Au on the RHS of Du/Dt = -\nabla(p) + AU
 void linearForcing(dfloat time)
 {
-  //uPrime = 1 / l;
-  const auto G = 10.0; 
+  const auto G       = 10.0;
   const auto invTau0 = uPrime / l;
-  const auto k0 = 1.5 * uPrime * uPrime;
+  const auto k0      = 1.5 * uPrime * uPrime;
 
-  auto mesh = nrs->meshV;
+  //.. RBK Hacks (changed "nrs->mesh" to "nrs->fluid->mesh")
+  auto mesh = nrs->fluid->mesh;
 
   auto avg = [&](auto o_u)
-  { 
+  {
     return platform->linAlg->innerProd(mesh->Nlocal, mesh->o_Jw, o_u, platform->comm.mpiComm()) / mesh->volume;
   };
 
   std::vector<dfloat> Uavg(mesh->dim);
+  //.. RBK Hacks (changed "nrs->fieldOffset" to "nrs->fluid->fieldOffset")
   Uavg[0] = avg(nrs->fluid->o_U.slice(0 * nrs->fluid->fieldOffset));
   Uavg[1] = avg(nrs->fluid->o_U.slice(1 * nrs->fluid->fieldOffset));
   Uavg[2] = avg(nrs->fluid->o_U.slice(2 * nrs->fluid->fieldOffset));
 
-  auto o_Uprime = [&]() 
+  auto o_Uprime = [&]()
   {
     poolDeviceMemory<dfloat> o_Uprime(nrs->fluid->fieldOffsetSum);
     o_Uprime.copyFrom(nrs->fluid->o_U, o_Uprime.size());
     for(int i = 0; i < mesh->dim; i++) {
-      platform->linAlg->add(mesh->Nlocal, -Uavg[i], o_Uprime.slice(i * nrs->fluid->fieldOffset)); 
+      platform->linAlg->add(mesh->Nlocal, -Uavg[i], o_Uprime.slice(i * nrs->fluid->fieldOffset));
     }
-    return o_Uprime; 
+    return o_Uprime;
   }();
 
   const auto epsVolAvg = [&]()
@@ -70,9 +80,20 @@ void linearForcing(dfloat time)
     platform->options.getArgs("FLUID DENSITY", rho);
     const auto nu = mue / rho;
 
-    auto o_gradU = opSEM::strongGradVec(mesh, nrs->fluid->fieldOffset, nrs->fluid->o_U);
- 
+    //.. RBK Hacks (the "false" was missing the example/hit/hit.udf)
+    auto o_gradU = opSEM::strongGradVec(mesh, nrs->fluid->fieldOffset, nrs->fluid->o_U, false);
+
+    static poolDeviceMemory<dfloat> o_invAJwJw;
+    if (!o_invAJwJw.isInitialized()) {
+      o_invAJwJw.resize(mesh->Nlocal);
+      platform->linAlg->axmyz(mesh->Nlocal, 1.0, mesh->o_invAJw, mesh->o_Jw, o_invAJwJw);
+    }
+    platform->linAlg->axmyMany(mesh->Nlocal, mesh->dim * mesh->dim, nrs->fluid->fieldOffset, 0, 1.0, mesh->o_invAJw, o_gradU);
+    //.. RBK Hacks (changed "nrs->fieldOffset" to "nrs->fluid->fieldOffset")
+    nrs->qqt->startFinish("+", o_gradU, nrs->fluid->fieldOffset);
+
     poolDeviceMemory<dfloat> o_eps(mesh->Nlocal);
+    //.. RBK Hacks (changed "nrs->fieldOffset" to "nrs->fluid->fieldOffset")
     platform->linAlg->magSqrTensor(mesh->Nlocal, nrs->fluid->fieldOffset, o_gradU, o_eps);
     platform->linAlg->scale(mesh->Nlocal, nu, o_eps);
     return avg(o_eps);
@@ -80,6 +101,7 @@ void linearForcing(dfloat time)
 
   const auto kVolAvg = [&]()
   {
+    //.. RBK Hacks (changed "nrs->fieldOffset" to "nrs->fluid->fieldOffset")
     poolDeviceMemory<dfloat> o_k(nrs->fluid->fieldOffset);
     kEnergy(mesh->Nlocal, nrs->fluid->fieldOffset, o_Uprime, o_k);
     return avg(o_k);
@@ -89,17 +111,35 @@ void linearForcing(dfloat time)
 
   // add explicit contribtion
   for(int i = 0; i < mesh->dim; i++) {
+    //.. RBK Hacks (changed "nrs->fieldOffset" to "nrs->fluid->fieldOffset")
     auto o_ext = nrs->fluid->o_EXT.slice(i * nrs->fluid->fieldOffset, mesh->Nlocal);
-    platform->linAlg->fill(mesh->Nlocal, -A*Uavg[i], o_ext); 
+    platform->linAlg->fill(mesh->Nlocal, -A*Uavg[i], o_ext);
   }
 
   if (platform->comm.mpiRank() == 0) {
-    const auto uRms = std::sqrt(2./3 * kVolAvg);
-    std::cout << "A=" << A 
-              << "  k=" << kVolAvg 
-              << "  k0=" << k0 
-              << "  l= " << std::pow(uRms,3) / epsVolAvg 
-              << "  l0= " << l 
+    dfloat mue, rho;
+    platform->options.getArgs("FLUID VISCOSITY", mue);
+    platform->options.getArgs("FLUID DENSITY", rho);
+    const auto nu = mue / rho;
+
+    const auto uRms  = std::sqrt(2./3 * kVolAvg);
+    const auto le    = std::pow(uRms,3) / epsVolAvg;
+    const auto Re_le = uPrime * le / nu;
+
+    std::cout << "HIT3D >>> time = " << time
+              << "          mesh volume = " << mesh->volume
+              << "          nu = " << nu
+              << "          G = " << G
+              << "          k0 = " << k0
+              << "          l0 = " << l
+              << "          invTau0 = " << invTau0
+              << "          A = " << A
+              << "          epsVolAvg = " << epsVolAvg
+              << "          k = " << kVolAvg
+              << "          uRms = " << uRms
+              << "          le = " << le
+              << "          Re_le = " << Re_le
+              << "          Re_lambda = " << std::sqrt(Re_le * rho * 15.0 * uPrime * le)
               << std::endl;
   }
 }
@@ -121,7 +161,8 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
 
 void UDF_Setup()
 {
-  auto mesh = nrs->meshV;
+  //.. RBK Hacks (changed "nrs->mesh" to "nrs->fluid->mesh")
+  auto mesh = nrs->fluid->mesh;
 
   nrs->userSource = &linearForcing;
   nrs->fluid->userImplicitLinearTerm = &implicitForcing;
@@ -139,6 +180,7 @@ void UDF_Setup()
 
     auto [x, y, z] = mesh->xyzHost();
 
+    //.. RBK Hacks (changed "nrs->fieldOffset" to "nrs->fluid->fieldOffset")
     std::vector<dfloat> U(mesh->dim * nrs->fluid->fieldOffset, 0.0);
     for (int n = 0; n < mesh->Nlocal; n++) {
       U[n + 0 * nrs->fluid->fieldOffset] =  eps * beta  * sin(alpha * x[n]) * cos(beta * z[n]);
@@ -148,12 +190,15 @@ void UDF_Setup()
     nrs->fluid->o_U.copyFrom(U.data(), U.size());
   }
   o_qcriterion.resize(mesh->Nlocal);
-  nrs->addUserCheckpointField("scalar00", std::vector<deviceMemory<dfloat>>{o_qcriterion});
+  nrs->addUserCheckpointField("scalar01", std::vector<deviceMemory<dfloat>>{o_qcriterion});
 }
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-   if (nrs->checkpointStep) {
-     nrs->Qcriterion(o_qcriterion);
-   }
+  if (nrs->checkpointStep) {
+    nrs->copyToNek(time, tstep);
+    nek::userchk(); // compute lambda2
+    nrs->copyFromNek(time);
+    nrs->Qcriterion(o_qcriterion);
+  }
 }
