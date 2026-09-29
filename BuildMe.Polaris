@@ -2,6 +2,8 @@
 set -e -a
 
 #... load the necessary modules here ...
+#.. PE 26.03 (Aug 2026 upgrade): gcc-native/14 is the only GCC and comes with PrgEnv-gnu.
+#.. craype-accel-nvidia80 requires a PE cuda module (not cudatoolkit-standalone).
 module restore
 module use /soft/modulefiles
 module swap PrgEnv-nvidia PrgEnv-gnu
