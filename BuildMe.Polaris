@@ -5,6 +5,7 @@ set -e -a
 module restore
 module use /soft/modulefiles
 module swap PrgEnv-nvidia PrgEnv-gnu
+#.. NOTE: unload Darshan
 module unload darshan
 module load cuda/13.0
 module load craype-x86-milan craype-accel-nvidia80
