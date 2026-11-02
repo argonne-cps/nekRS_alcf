@@ -57,7 +57,8 @@ its first 256 points, so the values in `pdf_scalar00.dat` are far too small.
   directories.
   - `build_nekrs.pbs`: configure, build and install on a compute node (`cmake -S . -B build`, then
     `cmake --build build --target install -j 32`).
-  - `run_rbc.pbs`, `run_tgv.pbs`, `run_hit_ranks.pbs`, `run_pb146_ranks.pbs`, `run_1rank.pbs`: run a case. Each first
+  - `run_rbc.pbs`, `run_tgv.pbs`, `run_hit_ranks.pbs`, `run_pb146_ranks.pbs`, `run_kershaw_ranks.pbs`,
+    `run_1rank.pbs`: run a case. Each first
     JIT-precompiles kernels with `--build-only`, then runs with `--backend dpcpp`. They bind each rank to one GPU tile
     with `ZE_AFFINITY_MASK` and a per-rank CPU list. Settings follow `nekRS_HPCsupport/Aurora/nrsqsub`.
   - `diag_rbc.pbs`, `compare_tgv.py`: diagnostics for `rbc`, and a comparison of `tgv` energy and enstrophy against
@@ -92,6 +93,8 @@ step count and exited with code 0. Solution accuracy was not validated against r
 | `pb146` | 1 | 9032766 | 100 steps, t = 0.2 (capped) | 379.6 | 125.3 | completed |
 | `pb146` | 2 | 9032766 | 100 steps, t = 0.2 (capped) | 246.3 | 93.0 | completed |
 | `pb146` | 12 | 9032766 | 100 steps, t = 0.2 (capped) | 77.0 | 24.4 | completed |
+| `kershaw` | 1 | 9032995 | benchmark, `numSteps = 0` | 48.6 | n/a | completed |
+| `kershaw` | 12 | 9032995 | benchmark, `numSteps = 0` | 33.0 | n/a | completed |
 
 Notes:
 
@@ -103,6 +106,21 @@ Notes:
 - `hit` reaches a different final CFL at each rank count (1.72, 1.70, 1.61 and 1.83 for 1, 2, 6 and 12 ranks). HIT is
   chaotic, and I did not compare the results.
 - `tgv_1rank` was run to t = 10 instead of 20 to fit the time limit.
+- `kershaw` is a solver benchmark with `numSteps = 0`, so there is no time stepping and no solution to validate;
+  "completed" means the weighted dot product and the BPS5, BP5 and BP6 benchmarks all ran and the job exited with code 0.
+  It uses the stock mesh (1000 elements, refined to 8000 with `hrefine = 2`), so the 1-rank run has 8000 elements on the
+  GPU tile, as in the example's README, and the 12-rank run has about 670 per rank (strong scaling). `run_kershaw_ranks.pbs`
+  runs 1 and 12 ranks.
+
+  | Benchmark | 1 rank: throughput, (DOF x iter)/s/rank | 1 rank: flops/rank | 12 ranks: throughput | 12 ranks: flops/rank |
+  |-----------|------------------------------|--------------------|----------------------|----------------------|
+  | BPS5 (32 / 51 iterations) | 4.42e8 | 9.24e11 | 4.26e7 | 8.88e10 |
+  | BP5 (1000 iterations) | 3.94e9 | 7.53e11 | 8.76e8 | 1.68e11 |
+  | BP6 (500 iterations) | 4.97e9 | 9.46e11 | 1.49e9 | 2.84e11 |
+
+  For comparison, the example's README lists, at 8000 elements per GPU, BPS5 3.90e8 and BP5 3.87e9 for an NVIDIA A100,
+  and BPS5 8.03e8 and BP5 8.86e9 for a GH200. The 12-rank throughput per rank is much lower because the same
+  8000-element mesh is split over 12 tiles, leaving too little work per rank; it is not a like-for-like comparison.
 
 Runs of `rbc` used to find the fixes (12 ranks):
 
