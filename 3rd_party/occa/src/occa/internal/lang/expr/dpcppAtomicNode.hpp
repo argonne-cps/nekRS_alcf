@@ -18,10 +18,12 @@ namespace occa
     public:
       vartype_t atomic_type;
       exprNode *value{};
+      bool is_shared{false};
 
       dpcppAtomicNode(token_t *token_,
                       const vartype_t & atomic_type_,
-                      const exprNode& value_);
+                      const exprNode& value_,
+                      bool is_shared_ = false);
 
       dpcppAtomicNode(const dpcppAtomicNode &node);
 

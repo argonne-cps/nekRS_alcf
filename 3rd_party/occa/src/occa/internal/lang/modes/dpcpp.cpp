@@ -428,7 +428,10 @@ namespace occa
         variable_t &atomic_var = *(variable_node->getVariable());
         vartype_t atomic_type = atomic_var.vartype;
 
-        auto *atomic_ref = new dpcppAtomicNode(atomic_var.source, atomic_type, *variable_node);
+        auto *atomic_ref = new dpcppAtomicNode(atomic_var.source,
+                                               atomic_type,
+                                               *variable_node,
+                                               atomic_var.hasAttribute("shared"));
         atomicSmnt.replaceExprNode(variable_node, atomic_ref);
 
         exprSmnt.replaceWith(atomicSmnt);

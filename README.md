@@ -1,3 +1,122 @@
+# nekRS for ALCF Aurora (`aurora-next-patches`)
+
+This branch is nekRS `next` at commit `5e2455cf` (the same commit as `main` in this repository), plus two small fixes
+needed to run the `rbc` example on Aurora (Intel Data Center GPU Max / PVC, DPC++ backend). The original upstream
+README follows the horizontal rule below.
+
+- Upstream: <https://github.com/Nek5000/nekRS> (branch `next`)
+- Tested on: 1 Aurora node, oneAPI 2026.1.0, intel-compute-runtime 25.18.33578.77, mpich 5.0.0.aurora_test,
+  libfabric 2.3.1, gcc 14.3.0, cmake 3.31.11, DPC++ backend, one MPI rank per PVC GPU tile (12 ranks per node)
+
+## Changes relative to upstream
+
+Only 4 tracked source files change (16 insertions, 8 deletions), plus the new `alcf/` directory.
+
+### 1. Schwarz weights were used before they were created (`src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp`)
+
+- **Symptom:** every rank aborts while building the pressure multigrid preconditioner (`BUILDING pMG7`) with
+  `Segmentation fault from GPU at 0x90000 ... access: 0 (Read)`.
+- **Cause:** `pMGLevel::setupSmootherSchwarz()` calls `autoOverlap()`, which times `smoothSchwarz()`. On the ASM path
+  `smoothSchwarz()` passes `o_wts` to `postFDMKernel`, but `o_wts` is only allocated in `generateSchwarzWeights()`,
+  which ran after `autoOverlap()`.
+- **Triggers when:** the ASM smoother is used (the default for pressure), there is more than one rank, the backend is not
+  Serial, and `ENABLE GS COMM OVERLAP` is on (the default).
+- **Change:** call `generateSchwarzWeights()` before `autoOverlap()`.
+- **Patch:** `alcf/patches/01-nekrs-schwarz-weights-before-autooverlap.patch`
+
+### 2. Atomics on `@shared` arrays used the global address space (OCCA DPC++ translator)
+
+Files: `3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.cpp`, `dpcppAtomicNode.hpp`, and
+`3rd_party/occa/src/occa/internal/lang/modes/dpcpp.cpp`.
+
+- **Symptom:** setup completes, then every rank aborts at step 0 with
+  `Segmentation fault from GPU at 0x0 ... access: 2 (Atomic)`, in the `hist` UDF kernel of `examples/rbc`
+  (`@atomic cnt_s[idx] += w[id]` on a `@shared` array).
+- **Cause:** `dpcppAtomicNode::print()` emits `local_space` only if the atomic's type has the `shared` attribute, but OCCA
+  attaches `@shared` to the variable, not its type. Every atomic therefore got `sycl::access::address_space::global_space`,
+  which is undefined behaviour on local memory.
+- **Affects:** DPC++ only, and only user kernels with `@atomic` on `@shared` arrays. No nekRS core kernel does this.
+- **Change:** `transformAtomicBasicExpressionStatement` passes `atomic_var.hasAttribute("shared")` into
+  `dpcppAtomicNode`, and `print()` emits `local_space` when it is set.
+- **Patches:** `alcf/patches/02-nekrs-occa-dpcpp-shared-atomic.patch` (paths for this tree) and
+  `alcf/patches/02-occa-upstream-dpcpp-shared-atomic.patch` (paths relative to the OCCA repository, for upstream).
+
+After changing the OCCA translator, delete the case's `.cache` directory, because OCCA can reuse stale kernels.
+`alcf/patches/README.md` and `alcf/patches/nekrs-aurora-fixes.html` have the full write-up with backtraces.
+
+### Known issue, not fixed here
+
+The histogram loop in `examples/rbc/hist.okl` checks `id < nBin`; it should check `id < N`. As written each rank counts only
+its first 256 points, so the values in `pdf_scalar00.dat` are far too small.
+
+### Added: `alcf/`
+
+- `alcf/patches/`: the patch files above and the write-up.
+- `alcf/scripts/`: the PBS scripts used for the runs below. They use project `Catalyst`, queue `debug`, and hard-coded paths
+  under `/lus/flare/projects/catalyst/world_shared/sspatel/scheel` (`TOP=`); change these for your own account and
+  directories.
+  - `build_nekrs.pbs`: configure, build and install on a compute node (`cmake -S . -B build`, then
+    `cmake --build build --target install -j 32`).
+  - `run_rbc.pbs`, `run_tgv.pbs`, `run_hit_ranks.pbs`, `run_pb146_ranks.pbs`, `run_1rank.pbs`: run a case. Each first
+    JIT-precompiles kernels with `--build-only`, then runs with `--backend dpcpp`. They bind each rank to one GPU tile
+    with `ZE_AFFINITY_MASK` and a per-rank CPU list. Settings follow `nekRS_HPCsupport/Aurora/nrsqsub`.
+  - `diag_rbc.pbs`, `compare_tgv.py`: diagnostics for `rbc`, and a comparison of `tgv` energy and enstrophy against
+    `examples/tgv/ref/data`.
+
+Run settings used by the scripts: `NEKRS_GPU_MPI=0`, `MPICH_GPU_SUPPORT_ENABLED=0`, `NEKRS_CACHE_BCAST=1`,
+`FI_CXI_RX_MATCH_MODE=hybrid` (needed by parRSB), `UR_L0_USE_COPY_ENGINE=0` (runtime workaround), and
+`OCCA_DPCPP_COMPILER_FLAGS="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"`.
+
+To apply the fixes to a fresh `next` checkout:
+
+```
+git apply alcf/patches/01-nekrs-schwarz-weights-before-autooverlap.patch
+git apply alcf/patches/02-nekrs-occa-dpcpp-shared-atomic.patch
+```
+
+## Verified runs on Aurora
+
+All runs used 1 node and the DPC++ backend with both patches applied. "Completed" means the run reached its end time or
+step count and exited with code 0. Solution accuracy was not validated against reference data for these runs.
+
+| Case | Ranks | PBS job | Run | Init (s) | Solve (s) | Result |
+|------|-------|---------|-----|----------|-----------|--------|
+| `rbc` | 12 | 8991170 | 2840 steps, t = 100.03 | 38.9 | 77.9 | completed |
+| `rbc` (`rbc_1rank`) | 1 | 8992110 | 2889 steps, t = 100.04 | 51.5 | 130.1 | completed |
+| `tgv` | 12 | 8991225 | 6667 steps, t = 20.00 | 53.8 | 268.1 | completed |
+| `tgv` (`tgv_1rank`) | 1 | 8992202 | 3334 steps, t = 10.00 (`endTime = 10`) | 177.8 | 705.7 | completed |
+| `hit` | 1 | 8992580 | 2000 steps, t = 40 | 27.7 | 36.4 | completed |
+| `hit` | 2 | 8992580 | 2000 steps, t = 40 | 26.3 | 41.8 | completed |
+| `hit` | 6 | 8992580 | 2000 steps, t = 40 | 24.3 | 36.7 | completed |
+| `hit` | 12 | 8992580 | 2000 steps, t = 40 | 24.8 | 35.7 | completed |
+| `pb146` | 1 | 9032766 | 100 steps, t = 0.2 (capped) | 379.6 | 125.3 | completed |
+| `pb146` | 2 | 9032766 | 100 steps, t = 0.2 (capped) | 246.3 | 93.0 | completed |
+| `pb146` | 12 | 9032766 | 100 steps, t = 0.2 (capped) | 77.0 | 24.4 | completed |
+
+Notes:
+
+- `rbc` needs both fixes. Without them it fails (see the table below).
+- `pb146` was capped at 100 steps with `numSteps = 100` in each run directory's `.par`; the stock case runs 10000 steps
+  (`endTime = 20`, `dt = 2e-3`). Its mesh (62,132 elements) comes from `examples/pb146/pb.re2.tgz`, extracted before the
+  run. `run_pb146_ranks.pbs` expects it in `run/pb146_src`. The solve time is for the 100 steps. Rank counts agree on
+  the final CFL (2.267), and the 1-rank run fit on one GPU tile.
+- `hit` reaches a different final CFL at each rank count (1.72, 1.70, 1.61 and 1.83 for 1, 2, 6 and 12 ranks). HIT is
+  chaotic, and I did not compare the results.
+- `tgv_1rank` was run to t = 10 instead of 20 to fit the time limit.
+
+Runs of `rbc` used to find the fixes (12 ranks):
+
+| PBS job | Patches | Result |
+|---------|---------|--------|
+| 8991073 | none | GPU read fault in pressure pMG setup |
+| 8991119 | fix 1 | GPU atomic fault in `hist` at step 0 |
+| 8991170 | fix 1 + 2 | completed: 2840 steps to t = 100, solve time 77.9 s |
+
+Init is the "initialization took" line of the nekRS log, and solve is the "solve" line of its runtime statistics, in
+seconds. Init includes mesh setup and loading kernels that were precompiled with `--build-only`.
+
+---
+
 ```
 ███    ██ ███████ ██   ██ ██████  ███████
 ████   ██ ██      ██  ██  ██   ██ ██     

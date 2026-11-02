@@ -1,0 +1,20 @@
+diff --git a/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp b/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp
+index 18293fbf..738d8238 100644
+--- a/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp
++++ b/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp
+@@ -1171,12 +1171,13 @@ void pMGLevel::setupSmootherSchwarz(elliptic_t *baseElliptic)
+                                nullptr,
+                                oogsMode);
+ 
++  // o_wts is required by smoothSchwarz (postFDMKernel) called in autoOverlap
++  generateSchwarzWeights();
++
+   autoOverlap();
+ 
+   free(maskedGlobalIdsExt);
+   meshFree(extendedMesh);
+-
+-  generateSchwarzWeights();
+ }
+ 
+ void pMGLevel::smoothSchwarz(occa::memory &o_u, occa::memory &o_Su, bool xIsZero)

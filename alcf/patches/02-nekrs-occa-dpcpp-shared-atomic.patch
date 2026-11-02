@@ -1,0 +1,66 @@
+diff --git a/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.cpp b/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.cpp
+index 849555e3..a9890e6c 100644
+--- a/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.cpp
++++ b/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.cpp
+@@ -9,13 +9,14 @@ namespace occa
+ 
+     dpcppAtomicNode::dpcppAtomicNode(token_t *token_,
+                                      const vartype_t& atomic_type_,
+-                                     const exprNode& value_)
+-        : exprNode{token_}, atomic_type{atomic_type_}, value{value_.clone()}
++                                     const exprNode& value_,
++                                     bool is_shared_)
++        : exprNode{token_}, atomic_type{atomic_type_}, value{value_.clone()}, is_shared{is_shared_}
+     {
+     }
+ 
+     dpcppAtomicNode::dpcppAtomicNode(const dpcppAtomicNode &node)
+-    : exprNode{node.token}, atomic_type{node.atomic_type}, value{node.value->clone()}
++    : exprNode{node.token}, atomic_type{node.atomic_type}, value{node.value->clone()}, is_shared{node.is_shared}
+     {}
+ 
+     dpcppAtomicNode::~dpcppAtomicNode()
+@@ -51,7 +52,8 @@ namespace occa
+       //  use `memory_scope::device`.
+       pout << "sycl::memory_scope::device,";
+ 
+-      if(atomic_type.hasAttribute("shared"))
++      // @shared is an attribute of the variable, not of its type
++      if(is_shared || atomic_type.hasAttribute("shared"))
+       {
+         pout << "sycl::access::address_space::local_space";
+       }
+diff --git a/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.hpp b/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.hpp
+index 3d4e095e..5f59f257 100644
+--- a/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.hpp
++++ b/3rd_party/occa/src/occa/internal/lang/expr/dpcppAtomicNode.hpp
+@@ -18,10 +18,12 @@ namespace occa
+     public:
+       vartype_t atomic_type;
+       exprNode *value{};
++      bool is_shared{false};
+ 
+       dpcppAtomicNode(token_t *token_,
+                       const vartype_t & atomic_type_,
+-                      const exprNode& value_);
++                      const exprNode& value_,
++                      bool is_shared_ = false);
+ 
+       dpcppAtomicNode(const dpcppAtomicNode &node);
+ 
+diff --git a/3rd_party/occa/src/occa/internal/lang/modes/dpcpp.cpp b/3rd_party/occa/src/occa/internal/lang/modes/dpcpp.cpp
+index 8cd23f86..d16babc9 100644
+--- a/3rd_party/occa/src/occa/internal/lang/modes/dpcpp.cpp
++++ b/3rd_party/occa/src/occa/internal/lang/modes/dpcpp.cpp
+@@ -428,7 +428,10 @@ namespace occa
+         variable_t &atomic_var = *(variable_node->getVariable());
+         vartype_t atomic_type = atomic_var.vartype;
+ 
+-        auto *atomic_ref = new dpcppAtomicNode(atomic_var.source, atomic_type, *variable_node);
++        auto *atomic_ref = new dpcppAtomicNode(atomic_var.source,
++                                               atomic_type,
++                                               *variable_node,
++                                               atomic_var.hasAttribute("shared"));
+         atomicSmnt.replaceExprNode(variable_node, atomic_ref);
+ 
+         exprSmnt.replaceWith(atomicSmnt);

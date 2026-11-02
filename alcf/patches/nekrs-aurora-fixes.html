@@ -1,0 +1,413 @@
+<title>nekRS next on Aurora</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: single reading column, one section per fix, each fix laid out as symptom → cause → change → verification */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --fg: #1b2230;
+  --muted: #5a6577;
+  --rule: #d9dee7;
+  --accent: #2b4cb3;
+  --accent-soft: #e6ebf9;
+  --code-bg: #eef1f6;
+  --add-bg: #e3f3e6;
+  --add-fg: #1d5e2c;
+  --del-bg: #fbe6e6;
+  --del-fg: #8a2020;
+  --fault: #a3261b;
+  --ok: #1d6b34;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161e; --surface: #1a1f2a; --fg: #e3e7ef; --muted: #9aa4b5; --rule: #2c3442;
+    --accent: #93a9f5; --accent-soft: #1f2a48; --code-bg: #161b25;
+    --add-bg: #15301d; --add-fg: #8fd9a2; --del-bg: #3a1818; --del-fg: #f0a3a3;
+    --fault: #f08a7e; --ok: #7fd396;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161e; --surface: #1a1f2a; --fg: #e3e7ef; --muted: #9aa4b5; --rule: #2c3442;
+  --accent: #93a9f5; --accent-soft: #1f2a48; --code-bg: #161b25;
+  --add-bg: #15301d; --add-fg: #8fd9a2; --del-bg: #3a1818; --del-fg: #f0a3a3;
+  --fault: #f08a7e; --ok: #7fd396;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.page {
+  max-width: 50rem;
+  margin: 0 auto;
+  padding-block: 2.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  gap: 2.75rem;
+}
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.2;
+  text-wrap: balance;
+  margin: 0;
+}
+h1 { font-size: 2.25rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.6rem; }
+h3 { font-size: 1.05rem; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+p { margin: 0; max-width: 65ch; }
+a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.88em; background: var(--code-bg); padding: 0.08em 0.3em; border-radius: 3px; overflow-wrap: anywhere; }
+ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.35rem; max-width: 65ch; }
+
+header { display: grid; gap: 0.9rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); letter-spacing: 0.04em; }
+.lede { font-size: 1.1rem; color: var(--fg); }
+
+.env {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--rule);
+}
+.env div { padding: 0.6rem 0; border-bottom: 1px solid var(--rule); display: grid; gap: 0.1rem; min-width: 0; padding-right: 1rem; }
+.env dt { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.env dd { margin: 0; font-family: var(--font-mono); font-size: 0.88rem; overflow-wrap: anywhere; }
+
+.summary { display: grid; gap: 0.75rem; }
+.summary-row {
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+.summary-row .num { font-family: var(--font-display); font-size: 1.6rem; font-weight: 600; color: var(--accent); line-height: 1; }
+.summary-row div { min-width: 0; display: grid; gap: 0.25rem; }
+.summary-row strong { font-weight: 600; }
+.summary-row a { font-size: 0.9rem; }
+
+.fix { display: grid; gap: 1.6rem; padding-top: 2rem; border-top: 2px solid var(--fg); }
+.fix-head { display: grid; gap: 0.5rem; }
+.tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.tag { font-family: var(--font-mono); font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.block { display: grid; gap: 0.6rem; min-width: 0; }
+
+pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  min-width: 0;
+}
+pre .fault { color: var(--fault); }
+pre .dim { color: var(--muted); }
+pre .hl { color: var(--accent); font-weight: 500; }
+pre .ok { color: var(--ok); }
+
+.diff { padding: 0.6rem 0; }
+.diff span { display: block; padding: 0 1rem; white-space: pre; }
+.diff .add { background: var(--add-bg); color: var(--add-fg); }
+.diff .del { background: var(--del-bg); color: var(--del-fg); }
+.diff .meta { color: var(--muted); }
+
+.code-wrap { display: grid; gap: 0.4rem; min-width: 0; }
+.code-bar { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.code-bar .path { font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; min-width: 0; }
+button.copy {
+  font: 500 0.78rem var(--font-body);
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.2rem 0.6rem;
+  cursor: pointer;
+}
+button.copy:hover { background: var(--accent-soft); }
+button.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.callout {
+  padding: 0.9rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  display: grid;
+  gap: 0.4rem;
+}
+.callout p { font-size: 0.95rem; }
+
+table { border-collapse: collapse; font-size: 0.92rem; width: 100%; }
+.table-wrap { overflow-x: auto; }
+th, td { text-align: left; padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td.mono { font-family: var(--font-mono); font-size: 0.85rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pass { color: var(--ok); font-weight: 600; }
+.failc { color: var(--fault); font-weight: 600; }
+
+footer { color: var(--muted); font-size: 0.9rem; display: grid; gap: 0.6rem; }
+
+@media (max-width: 520px) {
+  h1 { font-size: 1.8rem; }
+  h2 { font-size: 1.35rem; }
+}
+</style>
+
+<main class="page">
+
+  <header>
+    <div class="eyebrow">nekRS next @ 5e2455cf · Aurora · DPC++ backend</div>
+    <h1>Two GPU faults in nekRS next on Aurora, and their fixes</h1>
+    <p class="lede">The <code>rbc</code> example in nekRS <code>next</code> crashes on Aurora's Intel PVC GPUs. Two separate bugs cause this: one in nekRS's Schwarz smoother setup, and one in OCCA's SYCL code generator. With both patches applied, <code>rbc</code> runs to completion.</p>
+    <dl class="env">
+      <div><dt>nekRS</dt><dd>next, commit 5e2455cf</dd></div>
+      <div><dt>System</dt><dd>Aurora (ALCF), Intel Data Center GPU Max</dd></div>
+      <div><dt>Compiler</dt><dd>oneAPI 2026.1.0 (icpx/icx/ifx)</dd></div>
+      <div><dt>GPU runtime</dt><dd>intel-compute-runtime 25.18.33578.77</dd></div>
+      <div><dt>MPI</dt><dd>mpich 5.0.0.aurora_test</dd></div>
+      <div><dt>Run layout</dt><dd>1 node, 12 ranks, 1 rank per GPU tile</dd></div>
+    </dl>
+  </header>
+
+  <section class="summary" aria-label="Summary">
+    <div class="summary-row">
+      <span class="num">1</span>
+      <div>
+        <strong>Schwarz weights used before they exist</strong>
+        <p>nekRS reads a null buffer while timing the ASM smoother during pressure solver setup. One line moves in <code>ellipticMultiGridSchwarz.cpp</code>.</p>
+        <a href="#fix-1">Read fix 1</a>
+      </div>
+    </div>
+    <div class="summary-row">
+      <span class="num">2</span>
+      <div>
+        <strong>Atomics on <code>@shared</code> memory compiled as global atomics</strong>
+        <p>OCCA's DPC++ translator always uses <code>global_space</code> for <code>@atomic</code>, including on work-group local arrays. Three small edits in OCCA's translator.</p>
+        <a href="#fix-2">Read fix 2</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== FIX 1 ============================== -->
+  <section class="fix" id="fix-1">
+    <div class="fix-head">
+      <div class="tags"><span class="tag">nekRS</span><span class="tag">src/core/elliptic/MG</span><span class="tag">pressure pMG</span></div>
+      <h2>Fix 1: Schwarz weights used before they exist</h2>
+    </div>
+
+    <div class="block">
+      <h3>Symptom</h3>
+      <p>Every rank aborts during setup, while the pressure multigrid preconditioner is being built. The last lines before the crash are the float (<code>wordSize=4</code>) gather-scatter autotuning for the finest pMG level.</p>
+      <pre><span class="dim">================= ELLIPTIC SETUP FLUID PRESSURE =================
+...
+building MG preconditioner ...
+============= BUILDING pMG7 ==================
+autotuning gs for wordSize=4 nFields=1
+...</span>
+<span class="fault">Segmentation fault from GPU at 0x90000, ctx_id: 1 (CCS) type: 0 (NotPresent), level: 3 (PML4), access: 0 (Read), banned: 0, aborting.
+Abort was called at 288 line in file:
+.../intel-compute-runtime-25.18.33578.77/shared/source/os_interface/linux/drm_neo.cpp</span></pre>
+      <p>The fault address differs by rank (<code>0x90000</code>, <code>0x86000</code>, <code>0x78000</code>, <code>0x74000</code>, <code>0x68000</code>). Each one equals that rank's <code>Nelements × Np × sizeof(pfloat)</code>. For example, 288 elements × 8³ points × 4 bytes = 589,824 = <code>0x90000</code>. That pattern points to a kernel reading a full-size <code>pfloat</code> field from a null base pointer.</p>
+    </div>
+
+    <div class="block">
+      <h3>Where it happens</h3>
+      <p>Host backtrace from a core file (trimmed):</p>
+      <pre><span class="dim">#9  occa::dpcpp::stream::finish            occa/.../dpcpp/stream.cpp:16</span>
+<span class="dim">#10 oogs::start                            src/platform/ogs/oogs.cpp:921</span>
+<span class="hl">#12 pMGLevel::smoothSchwarz                ellipticMultiGridSchwarz.cpp:1280</span>
+<span class="dim">#13 setupSmootherSchwarz()::autoOverlap::timeOperator   ellipticMultiGridSchwarz.cpp:1051</span>
+<span class="hl">#15 pMGLevel::setupSmootherSchwarz         ellipticMultiGridSchwarz.cpp:1174   (autoOverlap())</span>
+<span class="dim">#16 pMGLevel::setupSmoother                ellipticMultiGridLevelSetup.cpp:144</span>
+<span class="dim">#18 ellipticMultiGridSetup                 ellipticMultiGridSetup.cpp:241</span>
+<span class="dim">#20 elliptic::_setup                       elliptic.cpp:774</span></pre>
+      <p>The sync at line 1280 only reports the fault. The bad read happens in a kernel queued between the previous sync (line 1261) and this one: the ogsExt unpack or <code>postFDMKernel</code>.</p>
+    </div>
+
+    <div class="block">
+      <h3>Root cause</h3>
+      <p><code>pMGLevel::setupSmootherSchwarz()</code> calls <code>autoOverlap()</code>, which times <code>smoothSchwarz()</code> to decide whether gather-scatter overlap is faster. On the ASM path, <code>smoothSchwarz()</code> ends with:</p>
+      <pre>postFDMKernel(Nelements, o_work1, o_work2, o_Su, <span class="hl">o_wts</span>);</pre>
+      <p><code>o_wts</code> is only reserved and filled in <code>generateSchwarzWeights()</code>. That function was called at the very end of <code>setupSmootherSchwarz()</code>, after <code>autoOverlap()</code>. So during the timing pass, <code>postFDMKernel</code> receives an uninitialized buffer and reads <code>Nelements × Np</code> values starting at address 0.</p>
+    </div>
+
+    <div class="callout">
+      <h3>When it triggers</h3>
+      <p>Only when all of the following hold. <code>autoOverlap()</code> does no work otherwise.</p>
+      <ul>
+        <li>Smoother is ASM, which is the default for the pressure solver. RAS does not use <code>o_wts</code>.</li>
+        <li>More than one MPI rank, on a non-Serial backend. <code>platform_t</code> turns <code>ENABLE GS COMM OVERLAP</code> off for a single rank or Serial mode.</li>
+        <li><code>ENABLE GS COMM OVERLAP</code> is on, which is the default.</li>
+      </ul>
+      <p>That covers most multi-rank cases that use the default pressure preconditioner, not just <code>rbc</code>. Other backends were not tested.</p>
+    </div>
+
+    <div class="block">
+      <h3>The change</h3>
+      <p>Generate the weights before <code>autoOverlap()</code>. <code>generateSchwarzWeights()</code> only needs <code>ogs</code> (<code>elliptic-&gt;oogs</code>) and <code>ogsExt</code>, and both are set up earlier in the same function. It does not use the extended mesh freed after <code>autoOverlap()</code>.</p>
+      <div class="code-wrap">
+        <div class="code-bar">
+          <span class="path">01-nekrs-schwarz-weights-before-autooverlap.patch</span>
+          <button class="copy" type="button" id="copy-fix1" data-target="patch1">Copy patch</button>
+        </div>
+<pre class="diff" id="patch1"><span class="meta">diff --git a/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp b/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp</span><span class="meta">--- a/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp</span><span class="meta">+++ b/src/core/elliptic/MG/ellipticMultiGridSchwarz.cpp</span><span class="meta">@@ -1171,12 +1171,13 @@ void pMGLevel::setupSmootherSchwarz(elliptic_t *baseElliptic)</span><span>                                nullptr,</span><span>                                oogsMode);</span><span> </span><span class="add">+  // o_wts is required by smoothSchwarz (postFDMKernel) called in autoOverlap</span><span class="add">+  generateSchwarzWeights();</span><span class="add">+</span><span>   autoOverlap();</span><span> </span><span>   free(maskedGlobalIdsExt);</span><span>   meshFree(extendedMesh);</span><span class="del">-</span><span class="del">-  generateSchwarzWeights();</span><span> }</span><span> </span><span> void pMGLevel::smoothSchwarz(occa::memory &amp;o_u, occa::memory &amp;o_Su, bool xIsZero)</span></pre>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Verification</h3>
+      <p>After rebuilding, the same run (PBS job 8991119) got through all solver setup and printed <code>initialization took 75.7 s</code>. It then hit the second, unrelated fault described below.</p>
+    </div>
+  </section>
+
+  <!-- ============================== FIX 2 ============================== -->
+  <section class="fix" id="fix-2">
+    <div class="fix-head">
+      <div class="tags"><span class="tag">OCCA</span><span class="tag">3rd_party/occa</span><span class="tag">DPC++ translator</span></div>
+      <h2>Fix 2: atomics on <code>@shared</code> memory compiled as global atomics</h2>
+    </div>
+
+    <div class="block">
+      <h3>Symptom</h3>
+      <p>Setup completes, then every rank aborts before the first time step completes:</p>
+      <pre><span class="dim">initialization took 75.6841 s</span>
+<span class="fault">Segmentation fault from GPU at 0x0, ctx_id: 1 (CCS) type: 0 (NotPresent), level: 3 (PML4), access: 2 (Atomic), banned: 1, aborting.</span></pre>
+      <p>The backtrace stops in <code>nekrs::udfExecuteStep(time=0, tstep=0)</code> (<code>nekrs.cpp:390</code>), so the faulting kernel is in the case's UDF. The only atomic there is the <code>hist</code> kernel in <code>examples/rbc/hist.okl</code>:</p>
+      <pre>@shared float cnt_s[2048];
+...
+<span class="hl">@atomic cnt_s[idx] += w[id];</span>      <span class="dim">// atomic on work-group local memory</span>
+...
+@atomic o[id] += cnt_s[id];         <span class="dim">// atomic on global memory</span></pre>
+    </div>
+
+    <div class="block">
+      <h3>Root cause</h3>
+      <p>The SYCL source that OCCA generated for this kernel uses a global address space for both atomics:</p>
+      <pre>auto &amp; cnt_s = *(sycl::ext::oneapi::group_local_memory_for_overwrite&lt;float[2048]&gt;(item_.get_group()));
+...
+sycl::atomic_ref&lt;float, sycl::memory_order::relaxed, sycl::memory_scope::device,
+                 <span class="fault">sycl::access::address_space::global_space</span>&gt;(cnt_s[idx]) += w[id];</pre>
+      <p>A global-space <code>atomic_ref</code> on local memory is undefined behavior in SYCL. On PVC, the local-memory offset is treated as a global address, so the first access faults near <code>0x0</code>.</p>
+      <p>OCCA does mean to handle this case. <code>dpcppAtomicNode::print()</code> emits <code>local_space</code> when <code>atomic_type.hasAttribute("shared")</code>. But <code>@shared</code> is attached to the variable (<code>variable_t</code>), not to its type. <code>dpcppParser::setSharedQualifiers()</code> confirms this, since it tests <code>var.hasAttribute("shared")</code>. So the check on the type never matches, and every <code>@atomic</code> gets <code>global_space</code>.</p>
+    </div>
+
+    <div class="callout">
+      <h3>Who is affected</h3>
+      <ul>
+        <li>Any OKL kernel compiled for the DPC++ backend that uses <code>@atomic</code> on a <code>@shared</code> array. In nekRS that means user or UDF kernels.</li>
+        <li>No nekRS core kernel uses this pattern. All six core <code>.okl</code> files that contain <code>@atomic</code> were checked.</li>
+        <li>CUDA and HIP are not affected, because their atomics do not take an address-space parameter.</li>
+      </ul>
+    </div>
+
+    <div class="block">
+      <h3>The change</h3>
+      <p>When building the atomic node, pass in whether the variable is <code>@shared</code>, and emit <code>local_space</code> when it is. The old check on the type is kept, so behavior can only change for atomics on shared variables.</p>
+      <div class="code-wrap">
+        <div class="code-bar">
+          <span class="path">02-occa-upstream-dpcpp-shared-atomic.patch (paths relative to the OCCA repo)</span>
+          <button class="copy" type="button" id="copy-fix2" data-target="patch2">Copy patch</button>
+        </div>
+<pre class="diff" id="patch2"><span class="meta">diff --git a/src/occa/internal/lang/expr/dpcppAtomicNode.hpp b/src/occa/internal/lang/expr/dpcppAtomicNode.hpp</span><span class="meta">--- a/src/occa/internal/lang/expr/dpcppAtomicNode.hpp</span><span class="meta">+++ b/src/occa/internal/lang/expr/dpcppAtomicNode.hpp</span><span class="meta">@@ -18,10 +18,12 @@ namespace occa</span><span>     public:</span><span>       vartype_t atomic_type;</span><span>       exprNode *value{};</span><span class="add">+      bool is_shared{false};</span><span> </span><span>       dpcppAtomicNode(token_t *token_,</span><span>                       const vartype_t &amp; atomic_type_,</span><span class="del">-                      const exprNode&amp; value_);</span><span class="add">+                      const exprNode&amp; value_,</span><span class="add">+                      bool is_shared_ = false);</span><span> </span><span>       dpcppAtomicNode(const dpcppAtomicNode &amp;node);</span><span> </span><span class="meta">diff --git a/src/occa/internal/lang/expr/dpcppAtomicNode.cpp b/src/occa/internal/lang/expr/dpcppAtomicNode.cpp</span><span class="meta">--- a/src/occa/internal/lang/expr/dpcppAtomicNode.cpp</span><span class="meta">+++ b/src/occa/internal/lang/expr/dpcppAtomicNode.cpp</span><span class="meta">@@ -9,13 +9,14 @@ namespace occa</span><span> </span><span>     dpcppAtomicNode::dpcppAtomicNode(token_t *token_,</span><span>                                      const vartype_t&amp; atomic_type_,</span><span class="del">-                                     const exprNode&amp; value_)</span><span class="del">-        : exprNode{token_}, atomic_type{atomic_type_}, value{value_.clone()}</span><span class="add">+                                     const exprNode&amp; value_,</span><span class="add">+                                     bool is_shared_)</span><span class="add">+        : exprNode{token_}, atomic_type{atomic_type_}, value{value_.clone()}, is_shared{is_shared_}</span><span>     {</span><span>     }</span><span> </span><span>     dpcppAtomicNode::dpcppAtomicNode(const dpcppAtomicNode &amp;node)</span><span class="del">-    : exprNode{node.token}, atomic_type{node.atomic_type}, value{node.value-&gt;clone()}</span><span class="add">+    : exprNode{node.token}, atomic_type{node.atomic_type}, value{node.value-&gt;clone()}, is_shared{node.is_shared}</span><span>     {}</span><span> </span><span>     dpcppAtomicNode::~dpcppAtomicNode()</span><span class="meta">@@ -51,7 +52,8 @@ namespace occa</span><span>       //  use `memory_scope::device`.</span><span>       pout &lt;&lt; "sycl::memory_scope::device,";</span><span> </span><span class="del">-      if(atomic_type.hasAttribute("shared"))</span><span class="add">+      // @shared is an attribute of the variable, not of its type</span><span class="add">+      if(is_shared || atomic_type.hasAttribute("shared"))</span><span>       {</span><span>         pout &lt;&lt; "sycl::access::address_space::local_space";</span><span>       }</span><span class="meta">diff --git a/src/occa/internal/lang/modes/dpcpp.cpp b/src/occa/internal/lang/modes/dpcpp.cpp</span><span class="meta">--- a/src/occa/internal/lang/modes/dpcpp.cpp</span><span class="meta">+++ b/src/occa/internal/lang/modes/dpcpp.cpp</span><span class="meta">@@ -428,7 +428,10 @@ namespace occa</span><span>         variable_t &amp;atomic_var = *(variable_node-&gt;getVariable());</span><span>         vartype_t atomic_type = atomic_var.vartype;</span><span> </span><span class="del">-        auto *atomic_ref = new dpcppAtomicNode(atomic_var.source, atomic_type, *variable_node);</span><span class="add">+        auto *atomic_ref = new dpcppAtomicNode(atomic_var.source,</span><span class="add">+                                               atomic_type,</span><span class="add">+                                               *variable_node,</span><span class="add">+                                               atomic_var.hasAttribute("shared"));</span><span>         atomicSmnt.replaceExprNode(variable_node, atomic_ref);</span><span> </span><span>         exprSmnt.replaceWith(atomicSmnt);</span></pre>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Verification</h3>
+      <p>Translating <code>hist.okl</code> with the patched build (<code>occa translate --mode dpcpp</code>) gives the correct address space for each atomic:</p>
+      <pre>sycl::atomic_ref&lt;float,...,sycl::access::address_space::<span class="ok">local_space</span>&gt;(cnt_s[idx]) += w[id];
+sycl::atomic_ref&lt;float,...,sycl::access::address_space::<span class="ok">global_space</span>&gt;(o[id]) += cnt_s[id];</pre>
+      <p>The full <code>rbc</code> case (PBS job 8991170) then ran 2840 steps to t = 100 and exited with code 0.</p>
+      <p>The case's kernel cache (<code>.cache/</code>) was deleted before that run. OCCA may not detect a translator change and could reuse the old compiled kernel.</p>
+    </div>
+  </section>
+
+  <!-- ============================== RESULTS ============================== -->
+  <section class="fix" id="runs">
+    <div class="fix-head">
+      <h2>Run history</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>PBS job</th><th>Patches</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">8991073</td><td>none</td><td><span class="failc">GPU read fault</span> in pressure pMG setup (fix 1)</td></tr>
+          <tr><td class="mono">8991119</td><td>fix 1</td><td><span class="failc">GPU atomic fault</span> in <code>hist</code> at step 0 (fix 2)</td></tr>
+          <tr><td class="mono">8991170</td><td>fix 1 + fix 2</td><td><span class="pass">Completed</span>: 2840 steps, t = 100, solve 77.9 s, 20 checkpoints written</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="fix" id="apply">
+    <div class="fix-head">
+      <h2>Applying the patches</h2>
+    </div>
+    <p>From the root of a nekRS <code>next</code> checkout:</p>
+    <pre>git apply 01-nekrs-schwarz-weights-before-autooverlap.patch
+git apply 02-nekrs-occa-dpcpp-shared-atomic.patch      <span class="dim"># same OCCA change, with 3rd_party/occa/ paths</span>
+cmake --build build --target install -j 32
+rm -rf &lt;case dir&gt;/.cache                               <span class="dim"># force kernels to be translated again</span></pre>
+    <p>For OCCA upstream, <code>02-occa-upstream-dpcpp-shared-atomic.patch</code> has the same change with paths relative to the OCCA repository root.</p>
+  </section>
+
+  <section class="fix" id="related">
+    <div class="fix-head">
+      <h2>Related issue, not fixed</h2>
+    </div>
+    <p>In <code>examples/rbc/hist.okl</code>, the loop that fills the histogram checks <code>if (id &lt; nBin)</code>, where it should check <code>if (id &lt; N)</code>. As written, each rank only counts its first 256 grid points, so the values in <code>pdf_scalar00.dat</code> are far too small. This does not cause a crash, and it was left unchanged.</p>
+  </section>
+
+  <footer>
+    <p>Patch files are in <code>/lus/flare/projects/catalyst/world_shared/sspatel/scheel/patches/</code> on Aurora.</p>
+  </footer>
+</main>
+
+<script>
+document.querySelectorAll("button.copy").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var pre = document.getElementById(btn.dataset.target);
+    var lines = Array.prototype.map.call(pre.querySelectorAll("span"), function (s) { return s.textContent; });
+    var text = lines.join("\n") + "\n";
+    var done = function () {
+      var old = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(function () { btn.textContent = old; }, 1500);
+    };
+    var fallback = function () {
+      var range = document.createRange();
+      range.selectNodeContents(pre);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.textContent = "Selected: press Ctrl+C";
+    };
+    try {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } catch (e) {
+      fallback();
+    }
+  });
+});
+</script>

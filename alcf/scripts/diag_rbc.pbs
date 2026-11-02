@@ -1,0 +1,61 @@
+#!/bin/bash
+#PBS -A Catalyst
+#PBS -N nekRS_rbc_diag
+#PBS -q debug
+#PBS -l select=1
+#PBS -l place=scatter
+#PBS -l walltime=01:00:00
+#PBS -l filesystems=home:flare
+#PBS -k doe
+#PBS -j oe
+
+# Diagnose GPU segfault in pressure pMG/Schwarz setup: run short (20 step)
+# variants of the rbc case one after another. Each variant writes its own log.
+
+export TZ='/usr/share/zoneinfo/US/Central'
+
+TOP=/lus/flare/projects/catalyst/world_shared/sspatel/scheel
+export NEKRS_HOME=$TOP/nekrs_install
+BIN=$NEKRS_HOME/bin/nekrs
+CPU_BIND_LIST="1-8:9-16:17-24:25-32:33-40:41-48:53-60:61-68:69-76:77-84:85-92:93-100"
+DIAG=$TOP/run/diag
+
+module load cmake
+ulimit -s unlimited
+
+export NEKRS_GPU_MPI=0
+export MPICH_GPU_SUPPORT_ENABLED=0
+export NEKRS_CACHE_BCAST=1
+export NEKRS_LOCAL_TMP_DIR=/tmp/
+export OCCA_DPCPP_COMPILER_FLAGS="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"
+export FI_CXI_RX_MATCH_MODE=hybrid
+
+# variant <name> <nranks> <copy-engine-workaround 0/1> <pressure smootherType or "">
+variant() {
+  local name=$1 nranks=$2 cpeng=$3 smoother=$4
+  local d=$DIAG/$name
+  rm -rf $d; mkdir -p $d
+  cp -a $TOP/run/rbc/{rbc.par,rbc.re2,rbc.udf,rbc.usr,hist.okl,.lhelper,.cache} $d/
+  cd $d
+  sed -i -e 's/^stopAt.*/stopAt = numSteps\nnumSteps = 20\nverbose = true/' -e '/^endTime/d' rbc.par
+  if [ -n "$smoother" ]; then
+    sed -i "s/^\[FLUID PRESSURE\]/[FLUID PRESSURE]\nsmootherType = $smoother/" rbc.par
+  fi
+  echo "===== variant $name: ranks=$nranks copyengine_wa=$cpeng smoother='$smoother' $(date)"
+  (
+    if [ $cpeng -eq 1 ]; then export UR_L0_USE_COPY_ENGINE=0; else unset UR_L0_USE_COPY_ENGINE; fi
+    timeout 540 mpiexec -n $nranks -ppn $nranks --cpu-bind=list:${CPU_BIND_LIST} -- \
+      ./.lhelper $BIN --setup rbc --backend dpcpp --device-id 0 > log 2>&1
+  )
+  local rc=$?
+  local last=$(grep -E "^step=" log | tail -1 | cut -c1-80)
+  echo "===== variant $name: exit=$rc  last step: ${last:-none}  $(date)"
+  grep -m3 -E "Segmentation fault|Abort|terminate called" log
+}
+
+variant base    12 1 ""
+variant jacobi  12 1 "Jacobi+FourthOptChebyshev"
+variant ras     12 1 "RAS+FourthOptChebyshev"
+variant 1rank    1 1 ""
+variant copyeng 12 0 ""
+echo "all done $(date)"

@@ -1,0 +1,36 @@
+#!/bin/bash
+#PBS -A Catalyst
+#PBS -N nekRS_build
+#PBS -q debug
+#PBS -l select=1
+#PBS -l place=scatter
+#PBS -l walltime=01:00:00
+#PBS -l filesystems=home:flare
+#PBS -k doe
+#PBS -j oe
+
+# Build + install nekRS (next branch) on an Aurora compute node.
+# Equivalent to: CC=mpicc CXX=mpic++ FC=mpif77 ./build.sh -DCMAKE_INSTALL_PREFIX=$NEKRS_HOME
+# (build.sh prompts for keyboard input, so cmake is invoked directly here.)
+
+set -e
+export TZ='/usr/share/zoneinfo/US/Central'
+
+TOP=/lus/flare/projects/catalyst/world_shared/sspatel/scheel
+SRC=$TOP/nekRS
+export NEKRS_HOME=$TOP/nekrs_install
+
+echo "Jobid: $PBS_JOBID  host: $(hostname)  start: $(date)"
+
+module load cmake
+module list 2>&1
+
+export CC=mpicc CXX=mpic++ FC=mpif77
+
+cd $SRC
+rm -rf build
+cmake -S . -B build -Wfatal-errors -DCMAKE_INSTALL_PREFIX=$NEKRS_HOME
+cmake --build build --target install -j 32
+
+echo "Build finished: $(date)"
+ls -l $NEKRS_HOME/bin

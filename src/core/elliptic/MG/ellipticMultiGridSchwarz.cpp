@@ -1171,12 +1171,13 @@ void pMGLevel::setupSmootherSchwarz(elliptic_t *baseElliptic)
                                nullptr,
                                oogsMode);
 
+  // o_wts is required by smoothSchwarz (postFDMKernel) called in autoOverlap
+  generateSchwarzWeights();
+
   autoOverlap();
 
   free(maskedGlobalIdsExt);
   meshFree(extendedMesh);
-
-  generateSchwarzWeights();
 }
 
 void pMGLevel::smoothSchwarz(occa::memory &o_u, occa::memory &o_Su, bool xIsZero)

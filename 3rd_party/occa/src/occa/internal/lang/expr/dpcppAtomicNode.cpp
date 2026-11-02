@@ -9,13 +9,14 @@ namespace occa
 
     dpcppAtomicNode::dpcppAtomicNode(token_t *token_,
                                      const vartype_t& atomic_type_,
-                                     const exprNode& value_)
-        : exprNode{token_}, atomic_type{atomic_type_}, value{value_.clone()}
+                                     const exprNode& value_,
+                                     bool is_shared_)
+        : exprNode{token_}, atomic_type{atomic_type_}, value{value_.clone()}, is_shared{is_shared_}
     {
     }
 
     dpcppAtomicNode::dpcppAtomicNode(const dpcppAtomicNode &node)
-    : exprNode{node.token}, atomic_type{node.atomic_type}, value{node.value->clone()}
+    : exprNode{node.token}, atomic_type{node.atomic_type}, value{node.value->clone()}, is_shared{node.is_shared}
     {}
 
     dpcppAtomicNode::~dpcppAtomicNode()
@@ -51,7 +52,8 @@ namespace occa
       //  use `memory_scope::device`.
       pout << "sycl::memory_scope::device,";
 
-      if(atomic_type.hasAttribute("shared"))
+      // @shared is an attribute of the variable, not of its type
+      if(is_shared || atomic_type.hasAttribute("shared"))
       {
         pout << "sycl::access::address_space::local_space";
       }
