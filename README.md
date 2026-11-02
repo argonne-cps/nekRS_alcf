@@ -58,7 +58,7 @@ its first 256 points, so the values in `pdf_scalar00.dat` are far too small.
   - `build_nekrs.pbs`: configure, build and install on a compute node (`cmake -S . -B build`, then
     `cmake --build build --target install -j 32`).
   - `run_rbc.pbs`, `run_tgv.pbs`, `run_hit_ranks.pbs`, `run_pb146_ranks.pbs`, `run_kershaw_ranks.pbs`,
-    `run_1rank.pbs`: run a case. Each first
+    `run_ethier.pbs`, `run_1rank.pbs`: run a case. Each first
     JIT-precompiles kernels with `--build-only`, then runs with `--backend dpcpp`. They bind each rank to one GPU tile
     with `ZE_AFFINITY_MASK` and a per-rank CPU list. Settings follow `nekRS_HPCsupport/Aurora/nrsqsub`.
   - `diag_rbc.pbs`, `compare_tgv.py`: diagnostics for `rbc`, and a comparison of `tgv` energy and enstrophy against
@@ -78,7 +78,8 @@ git apply alcf/patches/02-nekrs-occa-dpcpp-shared-atomic.patch
 ## Verified runs on Aurora
 
 All runs used 1 node and the DPC++ backend with both patches applied. "Completed" means the run reached its end time or
-step count and exited with code 0. Solution accuracy was not validated against reference data for these runs.
+step count and exited with code 0. Solution accuracy was not validated against reference data for these runs, except for `ethier`, which was checked
+against its exact solution (see the notes below).
 
 | Case | Ranks | PBS job | Run | Init (s) | Solve (s) | Result |
 |------|-------|---------|-----|----------|-----------|--------|
@@ -95,6 +96,9 @@ step count and exited with code 0. Solution accuracy was not validated against r
 | `pb146` | 12 | 9032766 | 100 steps, t = 0.2 (capped) | 77.0 | 24.4 | completed |
 | `kershaw` | 1 | 9032995 | benchmark, `numSteps = 0` | 48.6 | n/a | completed |
 | `kershaw` | 12 | 9032995 | benchmark, `numSteps = 0` | 33.0 | n/a | completed |
+| `ethier` | 12 | 9033715 | 100 steps, t = 0.2 | 34.2 | 2.7 | completed, error vs exact solution checked |
+| `ethier` (`--cimode 2`) | 12 | 9033715 | 30 steps, t = 0.06 | 37.8 | 1.2 | all CI checks passed |
+| `ethier` (`--cimode 1`, with particles) | 12 | 9033715 | 30 steps, t = 0.06 | 30.2 | 3.9 | all CI checks passed |
 
 Notes:
 
@@ -117,6 +121,23 @@ Notes:
   | BPS5 (32 / 51 iterations) | 4.42e8 | 9.24e11 | 4.26e7 | 8.88e10 |
   | BP5 (1000 iterations) | 3.94e9 | 7.53e11 | 8.76e8 | 1.68e11 |
   | BP6 (500 iterations) | 4.97e9 | 9.46e11 | 1.49e9 | 2.84e11 |
+
+- `ethier` is the Ethier-Steinman exact-solution case, so it is the accuracy check for this build. The velocity and
+  pressure Dirichlet/Neumann conditions and the two scalars (`VELX_DIR`, `VELX_NEU`) come from the exact solution. It ran on
+  12 ranks in three ways, in `run_ethier.pbs`: the stock `ethier.par` (100 steps, dt = 2e-3, polynomial order 9), and CI
+  modes 2 and 1 (`--cimode N`). All three exited with code 0. Errors below are L2 norms against the exact solution at the
+  last step.
+
+  | Run | Velocity (u_x) | Pressure | `VELX_DIR` | `VELX_NEU` |
+  |-----|----------------|----------|------------|------------|
+  | stock par, t = 0.2 | 3.6e-10 | 6.6e-10 | 1.1e-11 | 1.4e-11 |
+  | `--cimode 2`, t = 0.06 | 2.78e-10 | 7.0e-10 | 6.7e-12 | 7.5e-12 |
+  | `--cimode 1`, t = 0.06 | 2.78e-10 | 7.1e-10 | 5.4e-12 | 6.3e-12 |
+
+  In CI modes 1 and 2 the velocity, pressure, both scalars and the iteration-count checks passed (within the example's
+  30% tolerance on the reference errors; for example the velocity error is 2.78e-10 against a reference of 2.77e-10). Mode 1 also tracks particles and compares them with the exact trajectories; the
+  position error was 2.9e-11, 4.5e-11 and 7.1e-11 in x, y and z. Mode 3 is excluded for DPC++ in the example's CMake
+  test list, and I did not run the other modes.
 
   For comparison, the example's README lists, at 8000 elements per GPU, BPS5 3.90e8 and BP5 3.87e9 for an NVIDIA A100,
   and BPS5 8.03e8 and BP5 8.86e9 for a GH200. The 12-rank throughput per rank is much lower because the same
